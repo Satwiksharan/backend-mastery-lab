@@ -1,0 +1,130 @@
+Error handling is how your backend detects failures and returns appropriate responses without crashing or exposing sensitive internal details.
+1. Why do we need error handling?
+Consider this route:
+app.get("/users/:id", async (req, res) => {
+    const user = await User.findById(req.params.id);
+    res.json(user);
+});
+
+
+There are several possible problems:
+- The database query might fail.
+- The supplied ID might be malformed.
+- The database might not be available.
+- The requested user might not exist.
+Without appropriate error handling, unexpected errors can lead to failed requests and inconsistent responses.
+2. Handle errors with try...catch
+The first step is to handle failures around asynchronous database operations.
+app.get("/users/:id", async (req, res) => {
+    try {
+        const user = await User.findById(req.params.id);
+
+        if (!user) {
+            return res.status(404).json({
+                error: "User not found"
+            });
+        }
+
+        res.json(user);
+    } catch (error) {
+        res.status(500).json({
+            error: "Internal server error"
+        });
+    }
+});
+
+
+Here's what happens:
+- try contains the operation that might fail.
+- catch handles an exception thrown inside the try block, including a rejected promise awaited there.
+- 404 means the user wasn't found.
+- 500 indicates an unexpected server-side failure.
+A useful distinction: a missing user is not necessarily an exception. Your query can succeed and return null, so you must handle that case explicitly.
+3. The problem with repeating error handling
+Imagine you have 30 routes. If every route contains its own error-response logic, the code becomes repetitive and difficult to maintain.
+
+Express supports centralized error-handling middleware, allowing routes to pass errors to one shared handler.
+Incoming request
+
+Route handler
+
+Performs business logic
+
+Error passed with next(error)
+
+Central error handler
+
+Logs the failure and sends an appropriate response
+
+
+4. Build centralized error-handling middleware
+An Express error-handling middleware has four parameters: err, req, res, and next.
+app.use((err, req, res, next) => {
+    console.error(err);
+
+    res.status(500).json({
+        error: "Internal server error"
+    });
+});
+
+
+Express recognizes this as an error handler because it has four parameters.
+
+Register it after your routes and other middleware so it can handle errors passed forward from them.
+
+Now a route can forward an error like this:
+app.get("/users/:id", async (req, res, next) => {
+    try {
+        const user = await User.findById(req.params.id);
+
+        if (!user) {
+            return res.status(404).json({
+                error: "User not found"
+            });
+        }
+
+        res.json(user);
+    } catch (error) {
+        next(error);
+    }
+});
+
+
+Calling next(error) skips ordinary middleware and forwards the error to the next applicable error handler.
+
+The centralized handler can then log the error and generate a consistent response.
+5. Improve the design with a custom error
+Often, you want to distinguish expected application errors from unexpected server failures.
+
+For example, an invalid request might need a 400 response, while an unexpected database failure might need a 500.
+
+A simple custom error class can carry a status code:
+class AppError extends Error {
+    constructor(message, statusCode) {
+        super(message);
+        this.statusCode = statusCode;
+    }
+}
+
+
+You can create an error when a resource doesn't exist:
+throw new AppError("User not found", 404);
+
+
+Then handle it centrally:
+app.use((err, req, res, next) => {
+    console.error(err);
+
+    const statusCode = err.statusCode || 500;
+
+    res.status(statusCode).json({
+        error: statusCode === 500
+            ? "Internal server error"
+            : err.message
+    });
+});
+
+
+This is a simplified example. Production error handlers should also handle cases where response headers have already been sent, avoid leaking sensitive details, and map known database errors to appropriate client responses.
+
+For Express 5, rejected promises returned by async route handlers are automatically forwarded to error handling. With Express 4, you generally need to catch asynchronous errors and pass them to next(error), or use an appropriate wrapper.
