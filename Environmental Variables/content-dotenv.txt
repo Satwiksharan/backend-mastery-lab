@@ -1,0 +1,149 @@
+Environment Variables and Configuration Management
+So far, we've used values such as database URLs, JWT secrets, and port numbers in our Node.js backend. These values shouldn't all be hardcoded into our source code.
+
+Today, we'll learn how to separate configuration from application code and keep sensitive information secure.
+1. The problem with hardcoding
+Imagine writing this in your backend:
+const PORT = 3000;
+
+const MONGODB_URI =
+    "mongodb+srv://user:password@cluster.example.net/app";
+
+const JWT_SECRET = "my-secret-key";
+
+
+There are three problems:
+- Security: credentials and secrets could leak if the code is pushed to GitHub.
+- Flexibility: changing database connections requires editing the source code.
+- Deployment: local development, testing, and production often require different settings.
+The solution is to use environment variables.
+2. What are environment variables?
+Environment variables are values provided to a running application by its environment rather than being embedded directly in its source code.
+
+For example:
+Configuration
+
+.env file or deployment environment
+
+
+Node.js application
+
+Reads values through process.env
+
+
+Application runs with the chosen configuration
+
+Local, testing, or production
+
+
+For example:
+console.log(process.env.PORT);
+
+
+process.env is a built-in Node.js object containing environment variables available to the process.
+3. Create a .env file
+In your backend project's root directory, create a file named .env.
+PORT=3000
+MONGODB_URI=mongodb://127.0.0.1:27017/backend_lab
+JWT_SECRET=replace_with_a_long_random_secret
+
+
+These are example development settings. Use your actual database URI and a securely generated secret for your environment.
+
+Install dotenv:
+npm install dotenv
+
+
+Load the variables near the beginning of your application entry point:
+require("dotenv").config();
+
+const PORT = process.env.PORT || 3000;
+const MONGODB_URI = process.env.MONGODB_URI;
+const JWT_SECRET = process.env.JWT_SECRET;
+
+console.log("Server port:", PORT);
+
+
+Now your code reads the values from .env.
+
+Important: loading .env does not automatically make every variable available unless you call dotenv.config() or use another supported environment-loading method.
+4. Never commit .env to GitHub
+Create or update your .gitignore file:
+node_modules/
+.env
+
+
+This prevents Git from tracking those paths in future commits.
+
+If a secret was already committed, adding .env to .gitignore is not enough. Remove the exposed secret from the relevant service, rotate it, and clean up the repository history if necessary.
+
+You can keep a .env.example file to document the required variable names without revealing real credentials:
+PORT=3000
+MONGODB_URI=
+JWT_SECRET=
+
+
+This helps teammates understand which configuration values they need.
+5. Use configuration in a real Express application
+Here is a clean entry-point pattern:
+require("dotenv").config();
+
+const express = require("express");
+
+const app = express();
+
+const PORT = Number(process.env.PORT) || 3000;
+
+app.use(express.json());
+
+app.get("/", (req, res) => {
+    res.json({ message: "Backend is running" });
+});
+
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
+
+
+Notice that the application reads the port from its environment rather than depending on a hardcoded port.
+
+For database connections and JWT authentication, use the same approach:
+mongoose.connect(process.env.MONGODB_URI);
+
+
+jwt.sign(payload, process.env.JWT_SECRET, {
+    expiresIn: "15m"
+});
+
+
+These examples assume mongoose and jwt have been imported and the configuration has been loaded.
+6. Validate required configuration at startup
+A common backend mistake is allowing the application to start without a required secret or database URI, then failing much later.
+
+You can fail early:
+require("dotenv").config();
+
+const requiredVariables = [
+    "MONGODB_URI",
+    "JWT_SECRET"
+];
+
+for (const name of requiredVariables) {
+    if (!process.env[name]) {
+        throw new Error(
+            `Missing required environment variable: ${name}`
+        );
+    }
+}
+
+
+This makes configuration errors easier to diagnose.
+
+For a production backend, validate configuration before starting the server, and avoid printing secret values in logs.
+7. Development versus production
+Environment	Configuration source
+Local development	Local .env file
+Automated testing	Test-specific environment variables
+Cloud deployment	Platform's environment-variable or secret-management settings
+Container deployment	Runtime environment or secret-management mechanism
+The .env file is convenient for local development. In production, prefer your deployment platform's managed configuration and secret facilities.
